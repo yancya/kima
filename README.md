@@ -2,7 +2,7 @@
 
 macOS (Apple Silicon) native container management CLI.
 
-Swift + Virtualization.framework で Linux VM を直接管理し、VM 内の podman でコンテナを実行する。Docker Desktop の代替を目指す軽量ツール。
+Swift + Virtualization.framework で Linux VM を直接管理し、VM 内の podman でコンテナを実行する軽量ツール。
 
 ## Features
 
