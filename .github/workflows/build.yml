@@ -1,0 +1,37 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-host:
+    name: Build kima (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Codesign
+        run: codesign --entitlements kima.entitlements --force -s - .build/debug/kima
+      - name: Verify CLI
+        run: |
+          .build/debug/kima --help
+          .build/debug/kima machine --help
+
+  build-agent:
+    name: Build kima-agent (Linux arm64)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Swift static Linux SDK
+        run: swift sdk install https://download.swift.org/swift-6.1-release/static-sdk/swift-6.1-RELEASE/swift-6.1-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
+      - name: Build kima-agent for Linux arm64
+        run: swift build --product kima-agent --swift-sdk aarch64-swift-linux-musl -c release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kima-agent-linux-arm64
+          path: .build/release/kima-agent

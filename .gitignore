@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+Resources/kernel/
+Resources/rootfs/
+.swift-version

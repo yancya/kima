@@ -8,7 +8,7 @@ Swift + Virtualization.framework で Linux VM を直接管理し、VM 内の pod
 ```
 Host (macOS/Swift)              VM (Alpine Linux)
 ┌──────────────────┐           ┌──────────────────┐
-│  kima CLI         │           │  Guest Agent (Go) │
+│  kima CLI         │           │  Guest Agent (Swift)│
 │  (swift-argument- │◄─vsock──►│  └─ podman/crun   │
 │   parser)         │           │                    │
 │  KimaCore         │           └──────────────────┘
@@ -20,7 +20,7 @@ Host (macOS/Swift)              VM (Alpine Linux)
 
 - **Virtualization.framework 直叩き**: vfkit (Podman) や QEMU を介さず Swift から直接呼ぶ
 - **VM 内は Alpine Linux + podman**: コンテナ管理を再実装せず、podman に委譲する
-- **Guest Agent は Go**: Linux 向けクロスコンパイルが容易、コンテナ系ライブラリが豊富
+- **Guest Agent も Swift**: プロジェクト全体を Swift で統一、KimaKit の型定義を共有。`swift build --swift-sdk aarch64-swift-linux-musl` で Linux 向けクロスコンパイル
 - **通信は vsock**: SSH より低レイテンシ、鍵管理不要
 - **ディスクは raw image**: APFS スパースファイルで薄いプロビジョニング
 - **カーネル管理**: `kima machine upgrade` でホスト側差し替え (VZLinuxBootLoader 方式、EFI ブートではない)
@@ -59,7 +59,7 @@ kima/
 │   └── KimaKit/                 # Shared models/protocols
 │       ├── Models.swift
 │       └── Protocol.swift
-├── GuestAgent/                  # Go project: runs inside the Linux VM
+│   ├── kima-agent/              # Guest agent executable (runs inside the Linux VM)
 ├── Resources/
 │   ├── kernel/
 │   ├── initrd/
@@ -83,7 +83,6 @@ kima/
 | File sharing | `VZVirtioFileSystemDeviceConfiguration` + `VZSharedDirectory` |
 | Console | `VZVirtioConsoleDeviceConfiguration` |
 | Host-guest comms | `VZVirtioSocketDeviceConfiguration` (vsock) |
-| Rosetta (optional) | `VZLinuxRosettaDirectoryShare` |
 
 ## CLI Commands
 
@@ -111,7 +110,6 @@ kima images
 - `kima build -f Dockerfile .`
 - `kima machine ssh`
 - Bind mounts (`-v`) via virtiofs
-- Rosetta x86_64 container support
 
 ### Phase 3
 
@@ -145,10 +143,10 @@ kima images
 - `Virtualization.framework` - VM management
 - Platform: `.macOS(.v13)` minimum
 
-### Go (Guest Agent)
+### Swift (Guest Agent)
 
-- Minimal, static binary for linux/arm64
-- JSON-RPC over vsock
+- Static binary for linux/arm64 via `swift-sdk aarch64-swift-linux-musl`
+- KimaKit 共有で JSON-RPC 型を統一
 
 ### VM Image
 
