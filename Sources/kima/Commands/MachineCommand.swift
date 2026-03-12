@@ -74,6 +74,22 @@ struct MachineCommand: AsyncParsableCommand {
             try process.run()
 
             print("Machine starting (daemon PID: \(process.processIdentifier))")
+
+            // Wait for daemon socket to appear (indicates agent is ready)
+            let socketPath = KimaPaths.daemonSocketFile.path(percentEncoded: false)
+            for _ in 0..<120 {
+                if FileManager.default.fileExists(atPath: socketPath) {
+                    print("Machine is ready")
+                    return
+                }
+                // Check daemon is still alive
+                guard process.isRunning else {
+                    print("Error: daemon exited unexpectedly")
+                    throw ExitCode.failure
+                }
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            print("Warning: daemon started but agent may not be ready yet")
         }
     }
 

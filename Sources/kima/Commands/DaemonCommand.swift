@@ -33,21 +33,58 @@ struct DaemonCommand: AsyncParsableCommand {
         try await MainActor.run {
             let vmConfig = try VMConfigurationBuilder.build(config: config)
             let vm = KimaVirtualMachine(configuration: vmConfig)
-            // Store vm reference to keep it alive
             _daemonVM = vm
         }
 
         try await _daemonVM?.start()
+        logger.info("VM started")
 
-        logger.info("VM started. Daemon running. Send SIGTERM to stop.")
+        // Get vsock device on MainActor (sync)
+        let agentClient: GuestAgentClient = try await MainActor.run {
+            guard let socketDevice = _daemonVM?.socketDevice else {
+                logger.error("No vsock device found")
+                throw ExitCode.failure
+            }
+            return GuestAgentClient(socketDevice: socketDevice)
+        }
+
+        // Wait for guest agent (async, already @MainActor isolated)
+        logger.info("Waiting for guest agent...")
+        try await agentClient.waitForAgent(timeout: 120)
+
+        // Start daemon socket server (sync on MainActor)
+        try await MainActor.run {
+            let server = DaemonServer(agentClient: agentClient)
+            try server.start()
+            _daemonServer = server
+        }
+
+        logger.info("Daemon ready. Send SIGTERM to stop.")
+
+        // Handle SIGTERM for graceful shutdown
+        let sigSource = DispatchSource.makeSignalSource(signal: SIGTERM)
+        signal(SIGTERM, SIG_IGN)
+        sigSource.setEventHandler {
+            Task { @MainActor in
+                let shutdownLogger = Logger(label: "kima.daemon")
+                shutdownLogger.info("Received SIGTERM, shutting down...")
+                _daemonServer?.stop()
+                try? await _daemonVM?.stop()
+                try? FileManager.default.removeItem(at: KimaPaths.daemonPidFile)
+                Foundation.exit(0)
+            }
+        }
+        sigSource.resume()
 
         // Keep the daemon running indefinitely
         await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in
-            // Never resumes — daemon runs until the process is killed
+            // Never resumes — daemon runs until SIGTERM
         }
     }
 }
 
-// Global reference to keep VM alive during daemon lifetime
+// Global references to keep VM and server alive during daemon lifetime
 @MainActor
 private var _daemonVM: KimaVirtualMachine?
+@MainActor
+private var _daemonServer: DaemonServer?

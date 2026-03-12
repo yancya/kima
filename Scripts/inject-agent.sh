@@ -37,15 +37,23 @@ command_background=true
 pidfile="/run/${RC_SVCNAME}.pid"
 output_log="/var/log/kima-agent.log"
 error_log="/var/log/kima-agent.log"
+
+depend() {
+    need localmount
+    after networking
+}
 EOF
 
-# Network interfaces
+# Network interfaces (static IP — VZ NAT doesn't support AF_PACKET for DHCP)
 cat > "${TMPDIR}/interfaces" <<'EOF'
 auto lo
 iface lo inet loopback
 
 auto eth0
-iface eth0 inet dhcp
+iface eth0 inet static
+    address 192.168.64.4
+    netmask 255.255.255.0
+    gateway 192.168.64.1
 EOF
 
 # Hostname
