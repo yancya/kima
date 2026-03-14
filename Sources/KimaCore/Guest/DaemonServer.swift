@@ -100,27 +100,35 @@ public final class DaemonServer {
         agentClient: GuestAgentClient,
         logger: Logger
     ) async {
-        defer { Darwin.close(clientFD) }
+        // Read request on background thread (blocking I/O)
+        let requestResult: JSONRPCRequest? = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                var requestData = Data()
+                let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536)
+                defer { buffer.deallocate() }
 
-        // Read request
-        var requestData = Data()
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536)
-        defer { buffer.deallocate() }
+                while true {
+                    let bytesRead = Darwin.read(clientFD, buffer, 65536)
+                    if bytesRead <= 0 {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    requestData.append(buffer, count: bytesRead)
+                    if requestData.contains(0x0A) { break }
+                }
 
-        while true {
-            let bytesRead = read(clientFD, buffer, 65536)
-            if bytesRead <= 0 { return }
-            requestData.append(buffer, count: bytesRead)
-            if requestData.contains(0x0A) { break }
+                if let newlineIndex = requestData.firstIndex(of: 0x0A) {
+                    requestData = requestData[..<newlineIndex]
+                }
+
+                let request = try? JSONDecoder().decode(JSONRPCRequest.self, from: requestData)
+                continuation.resume(returning: request)
+            }
         }
 
-        if let newlineIndex = requestData.firstIndex(of: 0x0A) {
-            requestData = requestData[..<newlineIndex]
-        }
-
-        // Parse JSON-RPC request
-        guard let request = try? JSONDecoder().decode(JSONRPCRequest.self, from: requestData) else {
-            logger.error("Failed to parse client request")
+        guard let request = requestResult else {
+            Darwin.close(clientFD)
+            logger.error("Failed to read/parse client request")
             return
         }
 
@@ -132,7 +140,7 @@ public final class DaemonServer {
             var responseData = try JSONEncoder().encode(response)
             responseData.append(0x0A)
             responseData.withUnsafeBytes { buf in
-                _ = write(clientFD, buf.baseAddress!, buf.count)
+                _ = Darwin.write(clientFD, buf.baseAddress!, buf.count)
             }
         } catch {
             logger.error("Agent request failed: \(error.localizedDescription)")
@@ -144,10 +152,11 @@ public final class DaemonServer {
             if var responseData = try? JSONEncoder().encode(errorResponse) {
                 responseData.append(0x0A)
                 responseData.withUnsafeBytes { buf in
-                    _ = write(clientFD, buf.baseAddress!, buf.count)
+                    _ = Darwin.write(clientFD, buf.baseAddress!, buf.count)
                 }
             }
         }
+        Darwin.close(clientFD)
     }
 }
 

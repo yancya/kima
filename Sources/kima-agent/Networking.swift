@@ -13,11 +13,11 @@ import Foundation
 
 // MARK: - Protocols
 
-protocol ServerListener {
+protocol ServerListener: Sendable {
     func accept() throws -> Connection
 }
 
-protocol Connection {
+protocol Connection: Sendable {
     func readLine() -> String?
     func writeLine(_ line: String)
     func close()
@@ -133,7 +133,7 @@ final class TCPListener: ServerListener {
 
 // MARK: - Socket Connection
 
-final class SocketConnection: Connection {
+final class SocketConnection: Connection, @unchecked Sendable {
     private let fd: Int32
     private var buffer = Data()
 
@@ -159,8 +159,8 @@ final class SocketConnection: Connection {
     }
 
     func writeLine(_ line: String) {
-        let data = line + "\n"
-        data.utf8.withContiguousStorageIfAvailable { buf in
+        let data = Array((line + "\n").utf8)
+        data.withUnsafeBufferPointer { buf in
             _ = write(fd, buf.baseAddress!, buf.count)
         }
     }

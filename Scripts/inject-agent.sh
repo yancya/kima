@@ -39,7 +39,7 @@ output_log="/var/log/kima-agent.log"
 error_log="/var/log/kima-agent.log"
 
 depend() {
-    need localmount
+    need localmount modules
     after networking
 }
 EOF
@@ -65,6 +65,13 @@ echo "nameserver 8.8.8.8" > "${TMPDIR}/resolv.conf"
 # inittab addition for hvc0
 echo "hvc0::respawn:/sbin/getty 38400 hvc0" > "${TMPDIR}/hvc0-inittab-line"
 
+# Kernel modules to load early (vsock needed before kima-agent starts)
+cat > "${TMPDIR}/modules" <<'EOF'
+vsock
+vmw_vsock_virtio_transport
+virtio_net
+EOF
+
 # Use podman to run debugfs (since we need Linux tools for ext4)
 podman run --rm \
     --platform linux/arm64 \
@@ -74,28 +81,40 @@ podman run --rm \
 apk add --no-cache e2fsprogs e2fsprogs-extra > /dev/null 2>&1
 
 # Use debugfs to write files into the ext4 image
+# rm before write to handle re-injection (debugfs write fails on existing files)
 debugfs -w /work/rootfs.img <<DEBUGFS_CMDS
 cd /usr/local/bin
+rm kima-agent
 write /inject/kima-agent kima-agent
 set_inode_field kima-agent mode 0100755
 
 cd /etc/init.d
+rm kima-agent
 write /inject/kima-agent-init kima-agent
 set_inode_field kima-agent mode 0100755
 
 cd /etc/runlevels/default
+rm kima-agent
 symlink kima-agent /etc/init.d/kima-agent
 
 mkdir /etc/network
 cd /etc/network
+rm interfaces
 write /inject/interfaces interfaces
 
 cd /etc
+rm hostname
 write /inject/hostname hostname
+rm resolv.conf
 write /inject/resolv.conf resolv.conf
+rm modules
+write /inject/modules modules
 
 cd /etc/runlevels/default
+rm networking
 symlink networking /etc/init.d/networking
+rm modules
+symlink modules /etc/init.d/modules
 DEBUGFS_CMDS
 
 echo "Done!"
